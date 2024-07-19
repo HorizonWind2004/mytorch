@@ -10,7 +10,6 @@ def load(path):
         state_dict = pickle.load(f)
         return state_dict
     
-
 def read_images(filename):
     with open(filename, 'rb') as f:
         magic = int.from_bytes(f.read(4), 'big')

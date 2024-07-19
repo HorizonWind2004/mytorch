@@ -89,7 +89,7 @@ class Tensor:
         out._prev = {self, other}
         return out
     
-    def ln(self): 
+    def ln(self): # 未使用
         out = Tensor(np.log(self.data + 1e-12), requires_grad=self.requires_grad)
         
         def _backward():
@@ -104,7 +104,7 @@ class Tensor:
         out._prev = {self}
         return out
     
-    def softmax(self):
+    def softmax(self): # 未使用
         exps = np.exp(self.data - np.max(self.data, axis=-1, keepdims=True))
         out = exps / np.sum(exps, axis=-1, keepdims=True)
         out = Tensor(out, requires_grad=self.requires_grad)
