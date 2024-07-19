@@ -11,6 +11,44 @@ from mytorch.nn.module import Module
 from mytorch.optim.sgd import SGD
 import argparse
 
+from skimage import transform
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage.filters import unsharp_mask
+
+# 定义图像变换函数
+def augment_image(image):
+    # plt.imshow(sharpened_image)
+    # plt.show()
+
+    # 随机旋转
+    angle = np.random.uniform(-10, 10)
+    rotated = transform.rotate(image, angle = angle, mode='constant', preserve_range = True, clip=True)
+    
+    # 随机平移
+    translation = np.random.uniform(-3, 3, 2)
+    translated = transform.warp(rotated, transform.AffineTransform(translation=translation), mode = "constant")
+    
+    # 随机缩放
+    scale = np.random.uniform(0.9, 1.1)
+    scaled = transform.rescale(translated, scale, mode='constant', anti_aliasing = False, preserve_range = True)
+    
+    # 裁剪或填充到28x28
+    if scaled.shape[0] > 28:
+        scaled = transform.resize(scaled, (28, 28), mode='constant', anti_aliasing = False, preserve_range = True)
+    elif scaled.shape[0] < 28:
+        padded = np.zeros((28, 28))
+        start = (28 - scaled.shape[0]) // 2
+        padded[start:start+scaled.shape[0], start:start+scaled.shape[1]] = scaled
+        scaled = padded
+    
+    # sharpened_image = unsharp_mask(image, radius=1, amount=1)
+    # plt.imshow(sharpened_image)
+    # plt.show()
+    
+    # return sharpened_image
+    return scaled
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir', type=str, default='./data/MNIST/raw')
 parser.add_argument('--pretrained', type=str, default=None)
@@ -88,9 +126,32 @@ x_test = x_test.astype(np.float32)
 x_train = x_train / 255.0
 x_test = x_test / 255.0
 
+# 生成增强后的数据集
+augmented_images = []
+for image in x_train:
+    # print(image.shape)
+    augmented_image = augment_image(image)
+    augmented_images.append(augmented_image)
+
+# n = 101
+# image = x_train[n]
+# image = augment_image(image)
+
+x_train = np.array(augmented_images)
+
+# plt.imshow(x_train[n])
+# plt.show()
+# plt.imshow(image)
+# plt.show()
+# print(y_train[n])
+
+# print(x_train.shape)
+
 # normalize the image.
-x_train = (x_train - 0.1307) / 0.3081
-x_test = (x_test - 0.1307) / 0.3081
+x_train = (x_train - x_train.mean()) / np.std(x_train)
+x_test = (x_test - x_test.mean()) / np.std(x_test)
+
+# print(x_train.shape)
 
 x_train.resize((60000 // batch_size, batch_size, *input_shape))
 x_test.resize((10000, *input_shape))
@@ -99,6 +160,7 @@ y_train = np.eye(num_classes)[y_train]
 y_test = np.eye(num_classes)[y_test]
 y_train.resize((60000 // batch_size, batch_size, num_classes))
 y_test.resize((10000, num_classes))
+
 
 x_train = Tensor(x_train, requires_grad=True)
 y_train = Tensor(y_train, requires_grad=True)

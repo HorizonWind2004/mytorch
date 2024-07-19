@@ -2,3 +2,5 @@ tqdm
 torchvision
 numpy
 argparse
+scikit-image
+matplotlib
