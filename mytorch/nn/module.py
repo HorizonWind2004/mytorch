@@ -49,3 +49,13 @@ class Module:
         state_dict = self.state_dict()
         with open(path, 'wb') as f:
             pickle.dump(state_dict, f)
+            
+    def train(self):
+        for module in self.children():
+            if hasattr(module, 'train'):
+                module.train()
+                
+    def eval(self):
+        for module in self.children():
+            if hasattr(module, 'eval'):
+                module.eval()

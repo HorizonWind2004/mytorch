@@ -118,55 +118,108 @@ class AvgPool2d(Module):
         out._backward = _backward
         out._prev = {x}
         return out
-   
-class BatchNorm2d(Module): # 废弃
-    def __init__(self, num_features, eps = 1e-05, momentum = 0.1):
-        super(BatchNorm2d,self).__init__()
+
+class BatchNorm2d(Module):
+    def __init__(self, num_features, eps=1e-5, momentum=0.1):
+        super(BatchNorm2d, self).__init__()
         self.num_features = num_features
         self.eps = eps
         self.momentum = momentum
-
-        self.weight = Parameter(Tensor(np.ones(num_features)))
-        self.bias = Parameter(Tensor(np.zeros(num_features)))
-
-        self.running_mean = np.zeros(num_features)
-        self.running_var = np.ones(num_features)
+        self.gamma = Parameter(Tensor(np.ones(num_features)))
+        self.beta = Parameter(Tensor(np.zeros(num_features)))
+        self.running_mean = Parameter(Tensor(np.zeros(num_features)))
+        self.running_var = Parameter(Tensor(np.ones(num_features)))
+        self.training = False
 
     def forward(self, x):
-        batch_size, num_features, height, width = x.data.shape
-
-        if x.requires_grad:
-            mean = x.data.mean(axis=(0,2,3))
-            var = x.data.var(axis=(0,2,3))
-
-            self.running_mean = self.momentum * self.running_mean + (1 - self.momentum) * mean
-            self.running_var = self.momentum * self.running_var + (1 - self.momentum) * var
+        if self.training:
+            mean = x.data.mean(axis=(0, 2, 3), keepdims=True)
+            var = x.data.var(axis=(0, 2, 3), keepdims=True) + self.eps
+            self.running_mean.data = self.momentum * self.running_mean.data + (1 - self.momentum) * mean.flatten()
+            self.running_var.data = self.momentum * self.running_var.data + (1 - self.momentum) * var.flatten()
+            x_normalized = (x.data - mean) / np.sqrt(var)
         else:
-            mean = self.running_mean
-            var = self.running_var
+            mean = self.running_mean.data.reshape(1, self.num_features, 1, 1)
+            var = self.running_var.data.reshape(1, self.num_features, 1, 1)
+            x_normalized = (x.data - mean) / np.sqrt(var + self.eps)
 
-        x_hat = (x.data - mean.reshape(1,-1,1,1)) / np.sqrt(var.reshape(1,-1,1,1) + self.eps)
+        gamma_reshaped = self.gamma.data.reshape(1, self.num_features, 1, 1)
+        beta_reshaped = self.beta.data.reshape(1, self.num_features, 1, 1)
 
-        out = Tensor(self.weight.data.reshape(1,-1,1,1) * x_hat + self.bias.data.reshape(1,-1,1,1), requires_grad=True)
+        out = Tensor(gamma_reshaped * x_normalized + beta_reshaped, requires_grad=x.requires_grad)
 
         def _backward():
-            if self.weight.requires_grad:
-                if self.weight.grad is None:
-                    self.weight.grad = np.zeros_like(self.weight.data)
-                self.weight.grad = (out.grad * x_hat).sum(axis=(0,2,3))
-            if self.bias.requires_grad:
-                if self.bias.grad is None:
-                    self.bias.grad = np.zeros_like(self.bias.data)
-                self.bias.grad = out.grad.sum(axis=(0,2,3))
-
             if x.requires_grad:
-                if x.grad is None:
-                    x.grad = np.zeros_like(x.data)
-                dx_hat = out.grad * self.weight.data.reshape(1,-1,1,1)
-                dx = (1/batch_size) * (1/np.sqrt(var.reshape(1,-1,1,1) + self.eps)) * (batch_size*dx_hat - dx_hat.sum(axis=(0,2,3)).reshape(1,-1,1,1) - x_hat * (dx_hat*x_hat).sum(axis=(0,2,3).reshape(1,-1,1,1)))
-                x.grad += dx
+                grad_x_normalized = out.grad * self.gamma.data.reshape(1, self.num_features, 1, 1)
+                std_var_inv = 1. / np.sqrt(var)
+                dx = grad_x_normalized * std_var_inv
+
+                grad_gamma = np.sum(grad_x_normalized * x_normalized, axis=(0, 2, 3))
+                grad_beta = np.sum(out.grad, axis=(0, 2, 3))
+
+                self.gamma.grad = grad_gamma
+                self.beta.grad = grad_beta
+                x.grad = dx
 
         out._backward = _backward
         out._prev = {x}
 
         return out
+
+    def train(self):
+        self.training = True
+
+    def eval(self):
+        self.training = False
+
+# class BatchNorm1d(Module):
+#     def __init__(self, num_features, eps=1e-5, momentum=0.1):
+#         super(BatchNorm1d, self).__init__()
+#         self.num_features = num_features
+#         self.eps = eps
+#         self.momentum = momentum
+#         self.gamma = Parameter(Tensor(np.ones(num_features)))
+#         self.beta = Parameter(Tensor(np.zeros(num_features)))
+#         self.running_mean = np.zeros(num_features)
+#         self.running_var = np.ones(num_features)
+
+#     def forward(self, x):
+#         if self.training:
+#             mean = x.data.mean(axis=(0), keepdims=True)
+#             var = x.data.var(axis=(0), keepdims=True) + self.eps
+#             self.running_mean = self.momentum * self.running_mean + (1 - self.momentum) * mean.flatten()
+#             self.running_var = self.momentum * self.running_var + (1 - self.momentum) * var.flatten()
+#             x_normalized = (x.data - mean) / np.sqrt(var)
+#         else:
+#             mean = self.running_mean.reshape(1, self.num_features)
+#             var = self.running_var.reshape(1, self.num_features)
+#             x_normalized = (x.data - mean) / np.sqrt(var + self.eps)
+
+#         gamma_reshaped = self.gamma.data.reshape(1, self.num_features)
+#         beta_reshaped = self.beta.data.reshape(1, self.num_features)
+
+#         out = Tensor(gamma_reshaped * x_normalized + beta_reshaped, requires_grad=x.requires_grad)
+
+#         def _backward():
+#             if x.requires_grad:
+#                 grad_x_normalized = out.grad * self.gamma.data.reshape(1, self.num_features)
+#                 std_var_inv = 1. / np.sqrt(var)
+#                 dx = grad_x_normalized * std_var_inv
+
+#                 grad_gamma = np.sum(grad_x_normalized * x_normalized, axis=(0))
+#                 grad_beta = np.sum(out.grad, axis=(0))
+
+#                 self.gamma.grad = grad_gamma
+#                 self.beta.grad = grad_beta
+#                 x.grad = dx
+
+#         out._backward = _backward
+#         out._prev = {x}
+
+#         return out
+
+#     def train(self):
+#         self.training = True
+
+#     def eval(self):
+#         self.training = False
